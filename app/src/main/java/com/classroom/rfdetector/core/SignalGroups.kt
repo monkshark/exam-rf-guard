@@ -8,6 +8,8 @@ const val ESTABLISHED_MS = 30_000L
 /** 이름을 숨긴 와이파이 전부가 공유하는 묶음 키. 이름이 같은 것이 아니므로 이름처럼 "원래 있던 것"으로 보면 안 된다. */
 const val HIDDEN_WIFI_KEY = "WIFI:hidden"
 
+const val LOCAL_ADDRESS_SUFFIX = ":local"
+
 /**
  * 주소 대신 쓰는 묶음 기준. 블루투스 주소는 10~15분마다 바뀌므로 기기가 알린 이름,
  * 이름이 없으면 회사 코드와 종류 단서로 묶는다. 와이파이는 이름으로 묶는다.
@@ -15,6 +17,8 @@ const val HIDDEN_WIFI_KEY = "WIFI:hidden"
 fun signalGroupKey(source: ScanSource, address: String, name: String, manufacturerIds: Set<Int>, hints: Set<SignalHint>): String {
     val advertised = advertisedName(address, name)
     return when {
+        advertised != null && source == ScanSource.WIFI && isLocallyAdministered(address) == true ->
+            "${source.name}:name:${advertised.lowercase(Locale.ROOT)}$LOCAL_ADDRESS_SUFFIX"
         advertised != null -> "${source.name}:name:${advertised.lowercase(Locale.ROOT)}"
         source == ScanSource.WIFI -> HIDDEN_WIFI_KEY
         manufacturerIds.isEmpty() && hints.isEmpty() -> "BLE:unknown"
@@ -44,7 +48,7 @@ fun baselineGroupCounts(baseline: SignalSnapshot): Map<String, Int> = baseline.s
     .mapValues { (_, signals) -> signals.count { it.presence != SignalPresence.HISTORY }.coerceAtLeast(1) }
 
 /** 지금 잡히는 한 묶음. devices는 센 순서다. */
-data class SignalGroup(val key: String, val devices: List<TrackedDevice>, val baselineCount: Int, val alert: Boolean) {
+data class SignalGroup(val key: String, val devices: List<TrackedDevice>, val baselineCount: Int, val alert: Boolean, val copiesEmptyRoomName: Boolean = false) {
     val strongest: TrackedDevice get() = devices.first()
 }
 
@@ -104,7 +108,8 @@ fun watchView(devices: List<TrackedDevice>, baseline: Map<String, Int>, acknowle
         val group = when {
             key in acknowledged -> null
             // 빈 교실에 없던 묶음은 바로 보인다. 와이파이 주소는 바뀌지 않으므로 바로 알린다.
-            before == 0 -> SignalGroup(key, sorted, 0, alert = wifi || established > 0)
+            before == 0 -> SignalGroup(key, sorted, 0, alert = wifi || established > 0,
+                copiesEmptyRoomName = wifi && key.endsWith(LOCAL_ADDRESS_SUFFIX) && key.removeSuffix(LOCAL_ADDRESS_SUFFIX) in baseline)
             // 이름을 숨긴 와이파이는 이름이 같다는 근거가 없다. 빈 교실 공유기의 주소는 위에서 이미 걸렀으므로
             // 남은 것은 모두 새 전파다. 주소가 바뀌지 않으므로 바로 알린다.
             wifi && key == HIDDEN_WIFI_KEY -> SignalGroup(key, sorted, 0, alert = true)
