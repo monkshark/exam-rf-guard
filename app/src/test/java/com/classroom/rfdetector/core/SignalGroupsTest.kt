@@ -218,6 +218,29 @@ class SignalGroupsTest {
         assertEquals(0, now(101_000, emptySet()).count)
     }
 
+    @Test fun localAddressFromAnotherRouterOfTheEmptyRoomVendorIsNotACopy() {
+        val now = wifiView("b4:a9:4f:c7:31:a2" to "SCHOOL")
+        wifi("06:a9:4f:10:20:30", 100_000, "SCHOOL", rssi = -60)
+        val view = now(101_000, emptySet())
+        assertEquals(0, view.count)
+        assertTrue(view.knownGroups.any { it.key == "WIFI:name:school:local" })
+    }
+
+    @Test fun hotspotNextToAnotherRouterOfTheEmptyRoomVendorIsStillFlagged() {
+        val now = wifiView("b4:a9:4f:c7:31:a2" to "SCHOOL")
+        wifi("06:a9:4f:10:20:30", 100_000, "SCHOOL", rssi = -60)
+        wifi("da:a1:19:3b:7c:01", 100_000, "SCHOOL", rssi = -50)
+        val copy = now(101_000, emptySet()).wifi.single()
+        assertEquals(listOf("da:a1:19:3b:7c:01"), copy.devices.map { it.key })
+        assertTrue(copy.copiesEmptyRoomName)
+    }
+
+    @Test fun vendorOfALocalEmptyRoomAddressDoesNotHideACopy() {
+        val now = wifiView("10:00:00:00:00:01" to "SCHOOL", "3e:a1:19:00:00:01" to "U+Zone")
+        wifi("da:a1:19:3b:7c:01", 100_000, "SCHOOL", rssi = -50)
+        assertTrue(now(101_000, emptySet()).wifi.single().copiesEmptyRoomName)
+    }
+
     @Test fun newNameOnALocalAddressIsNotMarkedAsACopy() {
         val now = wifiView("10:00:00:00:00:01" to "SCHOOL")
         wifi("da:a1:19:3b:7c:01", 100_000, "AndroidAP_1234", rssi = -50)

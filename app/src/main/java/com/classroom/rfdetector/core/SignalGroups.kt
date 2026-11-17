@@ -90,6 +90,15 @@ fun isSameAccessPoint(address: String, baselineWifi: Set<String>): Boolean {
     return baselineWifi.any { known -> known.length == 17 && (known.substring(3) == candidate.substring(3) || known.dropLast(2) == candidate.dropLast(2)) }
 }
 
+fun sharesVendorWithEmptyRoomRouter(device: TrackedDevice, baseline: Map<String, Int>, baselineWifi: Set<String>): Boolean {
+    if (device.source != ScanSource.WIFI) return false
+    val key = device.groupKey
+    if (!key.endsWith(LOCAL_ADDRESS_SUFFIX) || key.removeSuffix(LOCAL_ADDRESS_SUFFIX) !in baseline) return false
+    val candidate = device.key.uppercase(Locale.ROOT)
+    if (candidate.length != 17) return false
+    return baselineWifi.any { known -> isLocallyAdministered(known) == false && known.substring(3, 8) == candidate.substring(3, 8) }
+}
+
 fun watchView(devices: List<TrackedDevice>, baseline: Map<String, Int>, acknowledged: Set<String>, nowMs: Long, baselineWifi: Set<String> = emptySet(),
     samples: List<SnapshotSignal> = emptyList()): WatchView {
     val live = devices.filter { it.presence != SignalPresence.HISTORY }
@@ -97,6 +106,7 @@ fun watchView(devices: List<TrackedDevice>, baseline: Map<String, Int>, acknowle
     val (findMy, others) = live.partition { it.source == ScanSource.BLE && it.hints.primary == SignalHint.APPLE_FIND_MY }
     // 이름을 숨긴 것까지 포함해, 빈 교실에 있던 공유기가 뒤늦게 내보인 다른 주소는 원래 있던 것이다.
     val rest = others.filterNot { it.source == ScanSource.WIFI && isSameAccessPoint(it.key, baselineWifi) }
+        .filterNot { sharesVendorWithEmptyRoomRouter(it, baseline, baselineWifi) }
         // 확인함으로 뺀 이름 숨김 와이파이는 그 주소만 뺀다.
         .filterNot { it.groupKey == HIDDEN_WIFI_KEY && it.acknowledgeKey in acknowledged }
     val flagged = mutableListOf<SignalGroup>()
@@ -145,7 +155,7 @@ private fun knownGroups(devices: List<TrackedDevice>, baseline: Map<String, Int>
     }
     val fromEmptyRoom = samples.map { row(it.groupKey, it) }
     val recorded = samples.map { it.groupKey }.toSet()
-    val later = members.filter { (key, all) -> key !in recorded && (key in acknowledged || all.any { it.acknowledgeKey in acknowledged } || all.any { it.source == ScanSource.WIFI && isSameAccessPoint(it.key, baselineWifi) }) }
+    val later = members.filter { (key, all) -> key !in recorded && (key in acknowledged || all.any { it.acknowledgeKey in acknowledged } || all.any { it.source == ScanSource.WIFI && isSameAccessPoint(it.key, baselineWifi) } || all.any { sharesVendorWithEmptyRoomRouter(it, baseline, baselineWifi) }) }
         .entries.sortedWith(compareBy({ entry -> entry.value.minOf { it.firstSeenMs } }, { it.key })).map { row(it.key, null) }
     return fromEmptyRoom + later
 }
